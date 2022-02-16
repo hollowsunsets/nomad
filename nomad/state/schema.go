@@ -154,6 +154,40 @@ func jobTableSchema() *memdb.TableSchema {
 					},
 				},
 			},
+			"create": {
+				Name:         "create",
+				AllowMissing: false,
+				Unique:       false,
+				Indexer: &memdb.CompoundIndex{
+					Indexes: []memdb.Indexer{
+						&memdb.UintFieldIndex{
+							Field: "CreateIndex",
+						},
+						&memdb.StringFieldIndex{
+							Field: "ID",
+						},
+					},
+				},
+			},
+			"namespace_create": {
+				Name:         "namespace_create",
+				AllowMissing: false,
+				Unique:       false,
+				Indexer: &memdb.CompoundIndex{
+					AllowMissing: false,
+					Indexes: []memdb.Indexer{
+						&memdb.StringFieldIndex{
+							Field: "Namespace",
+						},
+						&memdb.UintFieldIndex{
+							Field: "CreateIndex",
+						},
+						&memdb.StringFieldIndex{
+							Field: "ID",
+						},
+					},
+				},
+			},
 			"type": {
 				Name:         "type",
 				AllowMissing: false,
