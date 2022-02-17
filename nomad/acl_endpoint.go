@@ -3,6 +3,7 @@ package nomad
 import (
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,30 @@ const (
 	// should be the reset index
 	aclBootstrapReset = "acl-bootstrap-reset"
 )
+
+// ACLPaginationIterator is a wrapper over a go-memdb iterator that implements
+// the paginator Iterator interface.
+type ACLTokenPaginationIterator struct {
+	iter          memdb.ResultIterator
+	byCreateIndex bool
+}
+
+func (it ACLTokenPaginationIterator) Next() (string, interface{}) {
+	raw := it.iter.Next()
+	if raw == nil {
+		return "", nil
+	}
+
+	aclToken := raw.(*structs.ACLToken)
+	token := aclToken.AccessorID
+
+	// prefix the pagination token by CreateIndex to keep it properly sorted.
+	if it.byCreateIndex {
+		token = fmt.Sprintf("%v-%v", aclToken.CreateIndex, aclToken.AccessorID)
+	}
+
+	return token, aclToken
+}
 
 // ACL endpoint is used for manipulating ACL tokens and policies
 type ACL struct {
@@ -655,38 +680,54 @@ func (a *ACL) ListTokens(args *structs.ACLTokenListRequest, reply *structs.ACLTo
 	opts := blockingOptions{
 		queryOpts: &args.QueryOptions,
 		queryMeta: &reply.QueryMeta,
-		run: func(ws memdb.WatchSet, state *state.StateStore) error {
+		run: func(ws memdb.WatchSet, store *state.StateStore) error {
 			// Iterate over all the tokens
 			var err error
 			var iter memdb.ResultIterator
+			var aclIter ACLTokenPaginationIterator
+
 			if prefix := args.QueryOptions.Prefix; prefix != "" {
-				iter, err = state.ACLTokenByAccessorIDPrefix(ws, prefix)
+				iter, err = store.ACLTokenByAccessorIDPrefix(ws, prefix)
 			} else if args.GlobalOnly {
-				iter, err = state.ACLTokensByGlobal(ws, true)
+				iter, err = store.ACLTokensByGlobal(ws, true)
 			} else {
-				iter, err = state.ACLTokens(ws)
+				iter, err = store.ACLTokens(ws, args.Ascending)
+				aclIter.byCreateIndex = true
 			}
 			if err != nil {
 				return err
 			}
 
-			// Convert all the tokens to a list stub
-			reply.Tokens = nil
-			for {
-				raw := iter.Next()
-				if raw == nil {
-					break
-				}
-				token := raw.(*structs.ACLToken)
-				reply.Tokens = append(reply.Tokens, token.Stub())
+			aclIter.iter = iter
+
+			var tokens []*structs.ACLTokenListStub
+			paginator, err := state.NewPaginator(aclIter, args.QueryOptions,
+				func(raw interface{}) error {
+					token := raw.(*structs.ACLToken)
+					tokens = append(tokens, token.Stub())
+					return nil
+				})
+			if err != nil {
+				return structs.NewErrRPCCodedf(
+					http.StatusBadRequest, "failed to create result paginator: %v", err)
 			}
 
+			nextToken, err := paginator.Page()
+			if err != nil {
+				return structs.NewErrRPCCodedf(
+					http.StatusBadRequest, "failed to read result page: %v", err)
+			}
+
+			reply.QueryMeta.NextToken = nextToken
+			reply.Tokens = tokens
+
 			// Use the last index that affected the token table
-			index, err := state.Index("acl_token")
+			index, err := store.Index("acl_token")
 			if err != nil {
 				return err
 			}
 			reply.Index = index
+
 			return nil
 		}}
 	return a.srv.blockingRPC(&opts)
