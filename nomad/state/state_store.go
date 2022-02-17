@@ -2229,11 +2229,19 @@ func (s *StateStore) CSIVolumeRegister(index uint64, volumes []*structs.CSIVolum
 
 // CSIVolumes returns the unfiltered list of all volumes. Caller should
 // snapshot if it wants to also denormalize the plugins.
-func (s *StateStore) CSIVolumes(ws memdb.WatchSet) (memdb.ResultIterator, error) {
+func (s *StateStore) CSIVolumes(ws memdb.WatchSet, ascending bool) (memdb.ResultIterator, error) {
 	txn := s.db.ReadTxn()
 	defer txn.Abort()
 
-	iter, err := txn.Get("csi_volumes", "id")
+	var iter memdb.ResultIterator
+	var err error
+
+	if ascending {
+		iter, err = txn.Get("csi_volumes", "create")
+	} else {
+		iter, err = txn.GetReverse("csi_volumes", "create")
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("csi_volumes lookup failed: %v", err)
 	}
@@ -2348,10 +2356,21 @@ func (s *StateStore) CSIVolumesByNodeID(ws memdb.WatchSet, prefix, nodeID string
 }
 
 // CSIVolumesByNamespace looks up the entire csi_volumes table
-func (s *StateStore) CSIVolumesByNamespace(ws memdb.WatchSet, namespace, prefix string) (memdb.ResultIterator, error) {
+func (s *StateStore) CSIVolumesByNamespace(ws memdb.WatchSet, namespace string, ascending bool) (memdb.ResultIterator, error) {
 	txn := s.db.ReadTxn()
 
-	iter, err := txn.Get("csi_volumes", "id_prefix", namespace, prefix)
+	var (
+		iter  memdb.ResultIterator
+		err   error
+		exact = terminate(namespace)
+	)
+
+	if ascending {
+		iter, err = txn.Get("csi_volumes", "namespace_create_prefix", exact)
+	} else {
+		iter, err = txn.GetReverse("csi_volumes", "namespace_create_prefix", exact)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("volume lookup failed: %v", err)
 	}

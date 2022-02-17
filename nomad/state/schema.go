@@ -880,6 +880,39 @@ func csiVolumeTableSchema() *memdb.TableSchema {
 					},
 				},
 			},
+			"namespace_create": {
+				Name:         "namespace_create",
+				AllowMissing: false,
+				Unique:       true,
+				Indexer: &memdb.CompoundIndex{
+					Indexes: []memdb.Indexer{
+						&memdb.StringFieldIndex{
+							Field: "Namespace",
+						},
+						&memdb.UintFieldIndex{
+							Field: "CreateIndex",
+						},
+						&memdb.StringFieldIndex{
+							Field: "ID",
+						},
+					},
+				},
+			},
+			"create": {
+				Name:         "create",
+				AllowMissing: false,
+				Unique:       true,
+				Indexer: &memdb.CompoundIndex{
+					Indexes: []memdb.Indexer{
+						&memdb.UintFieldIndex{
+							Field: "CreateIndex",
+						},
+						&memdb.StringFieldIndex{
+							Field: "ID",
+						},
+					},
+				},
+			},
 			"plugin_id": {
 				Name:         "plugin_id",
 				AllowMissing: false,
