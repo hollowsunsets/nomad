@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/go-bexpr"
+	memdb "github.com/hashicorp/go-memdb"
 	"github.com/hashicorp/nomad/nomad/structs"
 )
 
@@ -15,6 +16,61 @@ type Iterator interface {
 	// Tokens should have a stable order and the order must match the paginator
 	// ascending property.
 	Next() (string, interface{})
+}
+
+// GetIDer is the interface that must be implemented by structs that can be
+// paginated by ID.
+type GetIDer interface {
+	GetID() string
+}
+
+// GetIDCreateIndexer is the interface that must be implemented by structs that
+// can be paginated by CreateIndex.
+type GetIDCreateIndexer interface {
+	GetIDer
+	GetCreateIndex() uint64
+}
+
+// OrderedIteratorOpts is a possible order option for an OrderedIterator.
+type OrderedIteratorOpts uint
+
+const (
+	OrderedIteratorByID OrderedIteratorOpts = iota
+	OrderedIteratorByCreateIndex
+)
+
+// OrderedIterator is an pagination iterator that can return different
+// pagination tokens depending on the order of the results.
+type OrderedIterator struct {
+	iter memdb.ResultIterator
+	opts OrderedIteratorOpts
+}
+
+// NewOrderedIterator returns a new OrderedIterator.
+func NewOrderedIterator(it memdb.ResultIterator, opts OrderedIteratorOpts) OrderedIterator {
+	return OrderedIterator{
+		iter: it,
+		opts: opts,
+	}
+}
+
+func (it OrderedIterator) Next() (string, interface{}) {
+	raw := it.iter.Next()
+	if raw == nil {
+		return "", nil
+	}
+
+	var token string
+
+	switch it.opts {
+	case OrderedIteratorByID:
+		token = raw.(GetIDer).GetID()
+	case OrderedIteratorByCreateIndex:
+		cooked := raw.(GetIDCreateIndexer)
+		token = fmt.Sprintf("%v-%v", cooked.GetCreateIndex(), cooked.GetID())
+	}
+
+	return token, raw
 }
 
 // Paginator is an iterator over a memdb.ResultIterator that returns
